@@ -1813,6 +1813,7 @@
         });
 
       const upgradeLevel = this.upgradeQueue[0] || this.stats.level;
+      const aidAvailable = (this.stats.aidKits || 0) < CONFIG.maxAidKits;
       const makeAidChoice = () => ({
         type: "aidKit",
         id: `aid-kit-${Date.now()}-${Math.random()}`,
@@ -1821,9 +1822,17 @@
         badge: "Бонус",
         description: "Добавляет 15% к запасу ХП, восстанавливает 20% ХП и увеличивает регенерацию за повышение уровня.",
       });
-      const bonusChoices = upgradeLevel > 6 ? [makeAidChoice()] : [];
+      const makeEmptyChoice = () => ({
+        type: "empty",
+        id: `empty-${Date.now()}-${Math.random()}`,
+        title: "Пусто",
+        styleId: "empty",
+        badge: "",
+        description: "Вы получили все скиллы!  Следите за обновлениями! Нажмите чтоб продолжить",
+      });
+      const bonusChoices = upgradeLevel > 6 && aidAvailable ? [makeAidChoice()] : [];
       const choices = shuffled([...abilityChoices, ...bonusChoices]).slice(0, 3);
-      while (choices.length < 3 && upgradeLevel > 6) choices.push(makeAidChoice());
+      while (choices.length < 3) choices.push(makeEmptyChoice());
       return choices;
     }
 
@@ -1869,7 +1878,9 @@
     }
 
     applyUpgrade(choice) {
+      if (choice.type === "empty") return;
       if (choice.type === "aidKit") {
+        if ((this.stats.aidKits || 0) >= CONFIG.maxAidKits) return;
         const oldMaxHp = this.stats.maxHp;
         const newMaxHp = Math.round(oldMaxHp * 1.15);
         const gainedMaxHp = newMaxHp - oldMaxHp;

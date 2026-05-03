@@ -1023,6 +1023,11 @@ button {
   --upgrade-border: rgba(209, 132, 224, 0.38);
 }
 
+.upgrade-option-empty {
+  --upgrade-rgb: 104, 104, 104;
+  --upgrade-border: rgba(190, 190, 190, 0.22);
+}
+
 .upgrade-title {
   display: flex;
   align-items: center;

@@ -84,6 +84,7 @@ const CONFIG = {
   playerBrake: 20,
   playerRadius: 16,
   maxHp: 100,
+  maxAidKits: 3,
   bulletSpeed: 610,
   bulletDamage: 2,
   bulletRadius: 5.45,

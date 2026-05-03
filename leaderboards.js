@@ -113,7 +113,7 @@ const leaderboards = (() => {
       skills[id] = Math.min(maxLevel, level);
     });
     const rawAidKits = roundNumber(source.aidKits || 0);
-    const aidKits = Number.isFinite(rawAidKits) ? Math.max(0, Math.min(99, rawAidKits)) : 0;
+    const aidKits = Number.isFinite(rawAidKits) ? Math.max(0, Math.min(CONFIG.maxAidKits, rawAidKits)) : 0;
     return { skills, aidKits };
   }
 

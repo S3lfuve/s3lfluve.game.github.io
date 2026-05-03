@@ -7,4 +7,4 @@ output/
 Thumbs.db
 .DS_Store
 progress.md
-supabase_chema.sql
+supabase_schema.sql
