@@ -1841,6 +1841,7 @@ function showUpgradeScreen(choices) {
     button.className = `upgrade-option upgrade-option-${styleId}`;
     button.type = "button";
     button.innerHTML = `
+      <span class="upgrade-hotkey">${index + 1}</span>
       <span class="upgrade-badge">${choice.badge}</span>
       <span class="upgrade-title">${choice.title}</span>
       <span class="upgrade-description">${choice.description}</span>
@@ -5386,6 +5387,14 @@ const leaderboards = (() => {
     });
   }
 
+  function handleUpgradeHotkey(event) {
+    if (event.repeat || isTextInputActive() || runtime.mode !== "upgrade") return;
+    const optionIndex = ["1", "2", "3"].indexOf(event.key);
+    if (optionIndex === -1) return;
+    event.preventDefault();
+    runtime.scene?.chooseUpgrade(optionIndex);
+  }
+
   dom.playButton.addEventListener("click", beginGame);
   dom.restartButton.addEventListener("click", () => {
     submitPendingLeaderboardRun();
@@ -5418,6 +5427,7 @@ const leaderboards = (() => {
   document.addEventListener("pointerdown", (event) => {
     if (!dom.leaderboardPanel?.contains(event.target)) setLeaderboardCategoryMenuOpen(false);
   });
+  document.addEventListener("keydown", handleUpgradeHotkey);
   document.querySelectorAll(".settings-arrow").forEach((button) => {
     button.addEventListener("click", () => cycleSetting(button.dataset.setting, Number(button.dataset.dir)));
   });
