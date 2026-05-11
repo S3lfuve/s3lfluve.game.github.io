@@ -44,6 +44,7 @@ const dom = {
   expFill: document.getElementById("exp-fill"),
   levelToast: document.getElementById("level-toast"),
   damageVignette: document.getElementById("damage-vignette"),
+  bossDistanceVignette: document.getElementById("boss-distance-vignette"),
   fadeLayer: document.getElementById("fade-layer"),
   joystick: document.getElementById("joystick"),
   joystickKnob: document.getElementById("joystick-knob"),
@@ -68,6 +69,8 @@ const runtime = {
   leaderboardRequestId: 0,
   leaderboardRun: null,
   pendingLeaderboardRun: null,
+  consoleCommandUsed: false,
+  bossCommandUsed: false,
 };
 
 const SETTINGS_STORAGE_KEY = "timeKillerSettings";
@@ -504,11 +507,17 @@ function showDamageFeedback() {
   showDamageFeedback.timer = window.setTimeout(() => dom.damageVignette.classList.remove("show"), 130);
 }
 
+function setBossDistanceVignette(opacity) {
+  if (!dom.bossDistanceVignette) return;
+  dom.bossDistanceVignette.style.setProperty("--boss-vignette-opacity", String(clamp(opacity, 0, 0.16)));
+}
+
 function showGameOver(summary) {
   resetLevelToast();
   hidePauseScreen();
   hideUpgradeScreen();
   setPauseButtonVisible(false);
+  setBossDistanceVignette(0);
   dom.statTime.textContent = summary.time;
   dom.statLevel.textContent = String(summary.level);
   dom.statWave.textContent = String(summary.wave);
@@ -540,6 +549,7 @@ function hideScreens() {
   setNicknamePanelActive(false);
   hideSettingsPanel();
   hideLeaderboardPanel();
+  setBossDistanceVignette(0);
 }
 
 function showPauseScreen() {

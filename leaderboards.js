@@ -101,7 +101,12 @@ const leaderboards = (() => {
     });
     const rawAidKits = roundNumber(source.aidKits ?? 0);
     const aidKits = Number.isFinite(rawAidKits) ? rawAidKits : null;
-    return { skills, aidKits };
+    const rawFlags = source.flags && typeof source.flags === "object" ? source.flags : {};
+    const flags = {
+      consoleCommandUsed: rawFlags.consoleCommandUsed === true,
+      bossCommandUsed: rawFlags.bossCommandUsed === true,
+    };
+    return { skills, aidKits, flags };
   }
 
   function buildMetricsPayload(summary, runId) {

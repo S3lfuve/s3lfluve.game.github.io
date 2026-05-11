@@ -7,6 +7,9 @@
       this.speed = CONFIG.playerSpeed;
       this.radius = CONFIG.playerRadius;
       this.currentVelocity = new Phaser.Math.Vector2(0, 0);
+      this.knockbackUntil = 0;
+      this.knockbackX = 0;
+      this.knockbackY = 0;
       this.body = scene.physics.add.image(0, 0, "playerTexture");
       this.body.setCircle(this.radius);
       this.body.setOffset(0, 0);
@@ -29,10 +32,13 @@
       this.body.setVelocity(0, 0);
       this.resetVisual();
       this.currentVelocity.set(0, 0);
+      this.knockbackUntil = 0;
+      this.knockbackX = 0;
+      this.knockbackY = 0;
       this.ring.clear();
     }
 
-    update(inputVector, delta) {
+    update(inputVector, delta, now = 0) {
       const desiredX = inputVector.x * this.speed;
       const desiredY = inputVector.y * this.speed;
       const hasInput = Math.hypot(inputVector.x, inputVector.y) > 0.01;
@@ -46,8 +52,29 @@
         this.currentVelocity.set(0, 0);
       }
 
-      this.body.setVelocity(this.currentVelocity.x, this.currentVelocity.y);
+      let velocityX = this.currentVelocity.x;
+      let velocityY = this.currentVelocity.y;
+      if (now < this.knockbackUntil) {
+        const fade = clamp((this.knockbackUntil - now) / Math.max(1, ILLUSOR_CONFIG.transformWaveDurationMs), 0, 1);
+        const eased = fade * fade;
+        velocityX += this.knockbackX * eased;
+        velocityY += this.knockbackY * eased;
+      } else {
+        this.knockbackX = 0;
+        this.knockbackY = 0;
+      }
+
+      this.body.setVelocity(velocityX, velocityY);
       this.draw();
+    }
+
+    applyKnockback(dirX, dirY, distance, now, duration) {
+      const length = Math.hypot(dirX, dirY) || 1;
+      const impulseDuration = Math.max(1, duration || ILLUSOR_CONFIG.transformWaveDurationMs);
+      const speed = (Math.max(0, distance) * 3 * 1000) / impulseDuration;
+      this.knockbackX = (dirX / length) * speed;
+      this.knockbackY = (dirY / length) * speed;
+      this.knockbackUntil = Math.max(this.knockbackUntil, now + impulseDuration);
     }
 
     draw() {
@@ -347,8 +374,8 @@
       this.container.removeAll(true);
       const size = this.size;
       const graphics = this.scene.add.graphics();
-      graphics.lineStyle(value >= 4 ? 1.4 : 1, 0xf2dda0, 0.82);
-      graphics.fillStyle(0xd5c27a, 0.95);
+      graphics.lineStyle(value >= 4 ? 1.4 : 1, 0xffffea, 0.86);
+      graphics.fillStyle(0xffffcc, 0.95);
       graphics.fillPoints(
         [
           new Phaser.Geom.Point(0, -size),
@@ -780,6 +807,8 @@
         return;
       }
       this.resetGame();
+      runtime.consoleCommandUsed = false;
+      runtime.bossCommandUsed = false;
       this.state = "playing";
       runtime.mode = "playing";
       this.setPlayerVisible(true);
@@ -907,8 +936,9 @@
 
       const input = this.readMovementInput();
       this.player.speed = this.currentPlayerSpeed();
+      this.updateBossDistanceVignette(this.player.speed);
       this.player.body.setMaxVelocity(this.player.speed);
-      this.player.update(input, safeDelta);
+      this.player.update(input, safeDelta, time);
       this.updatePlayerInvulnerability(time);
 
       this.updateEnemies(safeDelta, time);
@@ -1043,7 +1073,7 @@
 
               const dx = enemy.container.x - other.container.x;
               const dy = enemy.container.y - other.container.y;
-              const minDistance = enemy.separationRadius + other.separationRadius;
+              const minDistance = enemy.separationRadius + other.separationRadius + enemy.radius + other.radius;
               const distSq = dx * dx + dy * dy;
               if (distSq >= minDistance * minDistance) continue;
 
@@ -1168,7 +1198,8 @@
       const level = this.getSuperpowerLevel("knockback");
       const range = KNOCKBACK_RANGES[level];
       if (!range || !enemy.active) return;
-      this.applyEnemyKnockback(enemy, sourceX, sourceY, Phaser.Math.Between(range.min, range.max), fallbackX, fallbackY);
+      const distance = Phaser.Math.Between(range.min, range.max) * (enemy.isIllusor ? ILLUSOR_CONFIG.knockbackSkillEffectiveness : 1);
+      this.applyEnemyKnockback(enemy, sourceX, sourceY, distance, fallbackX, fallbackY);
     }
 
     applyEnemyKnockback(enemy, sourceX, sourceY, distance, fallbackX = 0, fallbackY = 0) {
@@ -1203,8 +1234,12 @@
       const cfg = BLOODY_CONFIG[level];
       if (!cfg || !enemy.active) return;
       enemy.applyBleed(level, cfg.damagePerSecond, now + cfg.durationMs, now);
-      if (cfg.slowMultiplier < 1) {
-        enemy.applySlow(cfg.slowMultiplier, now + cfg.durationMs);
+      let slowMultiplier = cfg.slowMultiplier;
+      if (enemy.isIllusor) {
+        slowMultiplier = 1 - (1 - slowMultiplier) * ILLUSOR_CONFIG.bloodySlowEffectiveness;
+      }
+      if (slowMultiplier < 1) {
+        enemy.applySlow(slowMultiplier, now + cfg.durationMs);
       }
     }
 
@@ -1278,7 +1313,32 @@
 
     currentPlayerSpeed() {
       const energyLevel = this.getSuperpowerLevel("energyDrink");
-      return CONFIG.playerSpeed * (1 + (ENERGY_DRINK_SPEED_BONUS[energyLevel] || 0));
+      return CONFIG.playerSpeed * (1 + (ENERGY_DRINK_SPEED_BONUS[energyLevel] || 0)) * this.currentIllusorPlayerSlowMultiplier();
+    }
+
+    updateBossDistanceVignette(currentSpeed = this.currentPlayerSpeed()) {
+      const energyLevel = this.getSuperpowerLevel("energyDrink");
+      const baseSpeed = CONFIG.playerSpeed * (1 + (ENERGY_DRINK_SPEED_BONUS[energyLevel] || 0));
+      const slowAmount = baseSpeed > 0 ? clamp(1 - currentSpeed / baseSpeed, 0, 1) : 0;
+      const range = 1 - ILLUSOR_CONFIG.playerMinSpeedMultiplier;
+      const pressure = range > 0 ? clamp(slowAmount / range, 0, 1) : 0;
+      const maxOpacity = isMobileViewport() ? 0.1 : 0.14;
+      setBossDistanceVignette(pressure * maxOpacity);
+    }
+
+    currentIllusorPlayerSlowMultiplier() {
+      const boss = this.activeEnemies.find((enemy) => enemy.active && enemy.isIllusor && !enemy.dying);
+      if (!boss || !this.player?.body) return 1;
+      const view = this.currentGameplayView();
+      const viewRadius = Math.min(view.width, view.height) / 2;
+      const distance = Phaser.Math.Distance.Between(this.player.body.x, this.player.body.y, boss.container.x, boss.container.y);
+      const extraDistance = distance - viewRadius;
+      if (extraDistance <= 0) return 1;
+      const steps = Math.ceil(extraDistance / ILLUSOR_CONFIG.playerSlowStepDistance);
+      return Math.max(
+        ILLUSOR_CONFIG.playerMinSpeedMultiplier,
+        1 - steps * ILLUSOR_CONFIG.playerSlowStepPenalty
+      );
     }
 
     fireShooterVolley(visibleTargets, time, shooterLevel, bazookaLevel = 0) {
@@ -1471,6 +1531,7 @@
     }
 
     spawnIllusorBoss() {
+      if (this.hasActiveIllusorBoss()) return false;
       if (!this.player?.body || this.state !== "playing") return false;
       const enemy = this.getFreeEnemy();
       if (!enemy) return false;
@@ -1491,6 +1552,7 @@
       }
       enemy.spawnIllusor(x, y, this.waveDirector.wave);
       this.activeEnemies.push(enemy);
+      this.waveDirector.spawnTimer = Math.max(this.waveDirector.spawnTimer, this.waveDirector.currentSpawnInterval());
       return true;
     }
 
@@ -1555,6 +1617,21 @@
       };
     }
 
+    isIllusorInsideReturnZone(enemy) {
+      if (!enemy?.active) return true;
+      const view = this.currentGameplayView();
+      const padX = isMobileViewport() ? view.width * 0.25 : 0;
+      const padY = isMobileViewport() ? view.height * 0.25 : 0;
+      const x = enemy.container.x;
+      const y = enemy.container.y;
+      return (
+        x >= view.x - padX &&
+        x <= view.right + padX &&
+        y >= view.y - padY &&
+        y <= view.bottom + padY
+      );
+    }
+
     getFreeEnemy() {
       return this.enemyPool.find((enemy) => !enemy.active && !enemy.dying);
     }
@@ -1571,8 +1648,13 @@
       return this.expPool.find((pickup) => !pickup.active && !pickup.collecting);
     }
 
+    hasActiveIllusorBoss() {
+      return this.activeEnemies.some((enemy) => enemy.active && enemy.isIllusor && !enemy.dying);
+    }
+
     onIllusorFormEntered(enemy, key) {
       if (!enemy?.active || !enemy.isIllusor) return;
+      if (key !== "blueSquare") this.clearIllusorMinions(enemy, true);
       if (key === "blueSquare") {
         this.spawnIllusorMinions(enemy);
       } else if (key === "redCircle") {
@@ -1582,7 +1664,9 @@
 
     spawnIllusorMinions(enemy) {
       const total = 8;
-      const distance = enemy.radius + 54;
+      const spawnMultiplier = Math.pow(ILLUSOR_CONFIG.illusorMinionSpawnRadiusMultiplier, enemy.illusorMinuteStacks || 0);
+      const speedMultiplier = Math.pow(ILLUSOR_CONFIG.illusorMinionSpeedMultiplier, enemy.illusorMinuteStacks || 0);
+      const distance = (enemy.radius + 54) * spawnMultiplier;
       const types = [ENEMY_TYPES.redCircle, ENEMY_TYPES.blueSquare];
 
       for (let i = 0; i < total; i += 1) {
@@ -1594,11 +1678,14 @@
         let y = enemy.container.y + Math.sin(angle) * distance;
 
         if (Phaser.Math.Distance.Between(this.player.body.x, this.player.body.y, x, y) < this.player.radius + type.radius + 28) {
-          x = enemy.container.x + Math.cos(angle) * (distance + 58);
-          y = enemy.container.y + Math.sin(angle) * (distance + 58);
+          x = enemy.container.x + Math.cos(angle) * ((enemy.radius + 112) * spawnMultiplier);
+          y = enemy.container.y + Math.sin(angle) * ((enemy.radius + 112) * spawnMultiplier);
         }
 
         minion.spawn(x, y, type, this.waveDirector.wave);
+        minion.speed *= speedMultiplier;
+        minion.isIllusorMinion = true;
+        minion.illusorOwner = enemy;
         minion.exp = 0;
         minion.container.setAlpha(0);
         minion.container.setScale(0.45);
@@ -1614,7 +1701,88 @@
       }
     }
 
-    fireIllusorRadial(enemy, count, offset = 0) {
+    clearIllusorMinions(owner, animated = false) {
+      for (const minion of this.activeEnemies) {
+        if (!minion.active || !minion.isIllusorMinion) continue;
+        if (owner && minion.illusorOwner !== owner) continue;
+        this.despawnIllusorMinion(minion, animated);
+      }
+    }
+
+    despawnIllusorMinion(minion, animated = false) {
+      minion.active = false;
+      minion.dying = true;
+      minion.isIllusorMinion = false;
+      minion.illusorOwner = null;
+      minion.exp = 0;
+      minion.clearHealthBar();
+      minion.body.body.enable = false;
+      minion.body.body.setVelocity(0, 0);
+      this.tweens.killTweensOf(minion.container);
+
+      if (!animated) {
+        minion.disable();
+        return;
+      }
+
+      this.tweens.add({
+        targets: minion.container,
+        alpha: 0,
+        scaleX: 0.45,
+        scaleY: 0.45,
+        duration: 180,
+        ease: "Sine.easeIn",
+        onComplete: () => minion.disable(),
+      });
+    }
+
+    emitIllusorTransformWave(enemy) {
+      if (!enemy?.active || !this.player?.body) return;
+      const x = enemy.container.x;
+      const y = enemy.container.y;
+      const radius = ILLUSOR_CONFIG.transformWaveRadius;
+      this.makeIllusorTransformWave(x, y, Math.max(enemy.radius * 0.72, 30), radius);
+
+      for (const target of this.activeEnemies) {
+        if (!target.active || target === enemy || target.isIllusorMinion) continue;
+        const distance = Phaser.Math.Distance.Between(x, y, target.container.x, target.container.y);
+        if (distance <= radius + target.radius) {
+          this.applyEnemyKnockback(target, x, y, ILLUSOR_CONFIG.transformWaveEnemyDistance);
+        }
+      }
+
+      const playerDistance = Phaser.Math.Distance.Between(x, y, this.player.body.x, this.player.body.y);
+      if (playerDistance <= radius + this.player.radius) {
+        this.player.applyKnockback(
+          this.player.body.x - x,
+          this.player.body.y - y,
+          ILLUSOR_CONFIG.transformWavePlayerDistance,
+          this.time.now,
+          ILLUSOR_CONFIG.transformWaveDurationMs
+        );
+      }
+    }
+
+    makeIllusorTransformWave(x, y, startRadius, endRadius) {
+      const wave = this.add.graphics();
+      wave.setDepth(6);
+      const state = { radius: startRadius, alpha: 0.34 };
+      this.tweens.add({
+        targets: state,
+        radius: endRadius,
+        alpha: 0,
+        duration: ILLUSOR_CONFIG.transformWaveDurationMs,
+        ease: "Sine.easeInOut",
+        onUpdate: () => {
+          wave.clear();
+          wave.lineStyle(2, 0xf0d995, state.alpha);
+          wave.strokeCircle(x, y, state.radius);
+        },
+        onComplete: () => wave.destroy(),
+      });
+    }
+
+    fireIllusorRadial(enemy, count, offset = 0, options = {}) {
       if (!enemy?.active || !this.player?.body) return;
       for (let i = 0; i < count; i += 1) {
         const projectile = this.getFreeEnemyProjectile();
@@ -1624,7 +1792,12 @@
         const dirY = Math.sin(angle);
         const x = enemy.container.x + dirX * Math.max(18, enemy.radius * 0.72);
         const y = enemy.container.y + dirY * Math.max(18, enemy.radius * 0.72);
-        projectile.fire(x, y, dirX, dirY, this.time.now);
+        projectile.fire(x, y, dirX, dirY, this.time.now, {
+          damage: enemy.illusorProjectileDamage ?? ILLUSOR_CONFIG.projectileDamage,
+          lifeMs: enemy.illusorProjectileLifeMs ?? ILLUSOR_CONFIG.projectileLifeMs,
+          maxDistance: enemy.illusorProjectileMaxDistance ?? ILLUSOR_CONFIG.projectileMaxDistance,
+          ...options,
+        });
         this.activeEnemyProjectiles.push(projectile);
       }
     }
@@ -1646,7 +1819,10 @@
       const wasIllusor = enemy.isIllusor;
       enemy.kill();
       this.stats.kills += 1;
-      if (wasIllusor) this.clearEnemyProjectiles(true);
+      if (wasIllusor) {
+        this.clearIllusorMinions(enemy, true);
+        this.clearEnemyProjectiles(true);
+      }
       if (expValue > 0) this.dropExpReward(x, y, expValue, radius);
       this.makeKillFeedback(x, y, radius, color);
     }
@@ -2188,6 +2364,10 @@
       return {
         skills: { ...this.superpowers },
         aidKits: this.stats.aidKits || 0,
+        flags: {
+          consoleCommandUsed: !!runtime.consoleCommandUsed,
+          bossCommandUsed: !!runtime.bossCommandUsed,
+        },
       };
     }
 
@@ -2276,7 +2456,10 @@
         if (pickup.active && Phaser.Math.Distance.Squared(px, py, pickup.container.x, pickup.container.y) > maxDistanceSq) pickup.disable();
       });
       this.activeEnemies.forEach((enemy) => {
-        if (enemy.active && Phaser.Math.Distance.Squared(px, py, enemy.container.x, enemy.container.y) > maxDistanceSq * 2.8) enemy.disable();
+        if (enemy.isIllusor) return;
+        if (enemy.active && Phaser.Math.Distance.Squared(px, py, enemy.container.x, enemy.container.y) > maxDistanceSq * 2.8) {
+          enemy.disable();
+        }
       });
     }
 
@@ -2512,6 +2695,8 @@
 
   function beginGame() {
     runtime.mode = "starting";
+    runtime.consoleCommandUsed = false;
+    runtime.bossCommandUsed = false;
     startLeaderboardTracking();
     setMenuRainActive(false);
     hideScreens();
@@ -2598,7 +2783,12 @@
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) scheduleForceResize();
   });
-  window.supersecretboss = () => runtime.scene?.spawnIllusorBoss?.() || false;
+  window.supersecretboss = () => {
+    runtime.consoleCommandUsed = true;
+    const spawned = runtime.scene?.spawnIllusorBoss?.() || false;
+    if (spawned) runtime.bossCommandUsed = true;
+    return spawned;
+  };
   runtime.settings = loadSettings();
   runtime.musicEnabled = loadMusicEnabled();
   updateMusicButton();

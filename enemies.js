@@ -37,8 +37,24 @@ class Enemy {
     this.knockbackX = 0;
     this.knockbackY = 0;
     this.isIllusor = false;
+    this.isIllusorMinion = false;
+    this.illusorOwner = null;
     this.illusorFormKey = "blueSquare";
     this.illusorBaseSpeed = 0;
+    this.illusorSpawnedAt = 0;
+    this.illusorScalingElapsedMs = 0;
+    this.illusorBuffStacks = 0;
+    this.illusorMinuteStacks = 0;
+    this.illusorSpeedMultiplier = 1;
+    this.illusorDashMultiplier = 1;
+    this.illusorDamageMultiplier = 1;
+    this.illusorOffscreenSince = 0;
+    this.illusorOffscreenBoost = 1;
+    this.illusorShotCooldownMs = ILLUSOR_CONFIG.greenShotCooldownMs;
+    this.illusorGreenProjectileCount = ILLUSOR_CONFIG.greenProjectileCount;
+    this.illusorProjectileDamage = ILLUSOR_CONFIG.projectileDamage;
+    this.illusorProjectileLifeMs = ILLUSOR_CONFIG.projectileLifeMs;
+    this.illusorProjectileMaxDistance = ILLUSOR_CONFIG.projectileMaxDistance;
     this.illusorTransform = null;
     this.illusorTransformTween = null;
     this.nextIllusorTransformAt = 0;
@@ -54,8 +70,24 @@ class Enemy {
 
   spawn(x, y, type, wave) {
     this.isIllusor = false;
+    this.isIllusorMinion = false;
+    this.illusorOwner = null;
     this.illusorFormKey = "blueSquare";
     this.illusorBaseSpeed = 0;
+    this.illusorSpawnedAt = 0;
+    this.illusorScalingElapsedMs = 0;
+    this.illusorBuffStacks = 0;
+    this.illusorMinuteStacks = 0;
+    this.illusorSpeedMultiplier = 1;
+    this.illusorDashMultiplier = 1;
+    this.illusorDamageMultiplier = 1;
+    this.illusorOffscreenSince = 0;
+    this.illusorOffscreenBoost = 1;
+    this.illusorShotCooldownMs = ILLUSOR_CONFIG.greenShotCooldownMs;
+    this.illusorGreenProjectileCount = ILLUSOR_CONFIG.greenProjectileCount;
+    this.illusorProjectileDamage = ILLUSOR_CONFIG.projectileDamage;
+    this.illusorProjectileLifeMs = ILLUSOR_CONFIG.projectileLifeMs;
+    this.illusorProjectileMaxDistance = ILLUSOR_CONFIG.projectileMaxDistance;
     if (this.illusorTransformTween) this.illusorTransformTween.stop();
     this.illusorTransform = null;
     this.illusorTransformTween = null;
@@ -65,7 +97,7 @@ class Enemy {
     this.damageTakenMultiplier = 1;
     this.type = type;
     this.radius = type.radius;
-    this.separationRadius = Math.min(type.radius, Math.max(10, type.radius * 0.936));
+    this.separationRadius = Math.min(type.radius, Math.max(10, type.radius * 1.0764));
     const heavyGrowth = type.key === "redPentagon" || type.key === "cyanHexagon";
     const hpScale = type.key === "redCircle" ? 0 : Math.max(0, wave - type.minWave) * (heavyGrowth ? 1.12 : 0.44);
     this.maxHp = type.key === "cyanHexagon" ? Math.round((type.baseHp + hpScale) * 10) / 10 : Math.round(type.baseHp + hpScale);
@@ -122,10 +154,26 @@ class Enemy {
 
   spawnIllusor(x, y, wave) {
     this.isIllusor = true;
+    this.isIllusorMinion = false;
+    this.illusorOwner = null;
     this.illusorFormKey = "blueSquare";
     this.illusorBaseSpeed = ILLUSOR_CONFIG.baseSpeed;
+    this.illusorSpawnedAt = this.scene.time.now;
+    this.illusorScalingElapsedMs = 0;
+    this.illusorBuffStacks = 0;
+    this.illusorMinuteStacks = 0;
+    this.illusorSpeedMultiplier = 1;
+    this.illusorDashMultiplier = 1;
+    this.illusorDamageMultiplier = 1;
+    this.illusorOffscreenSince = 0;
+    this.illusorOffscreenBoost = 1;
+    this.illusorShotCooldownMs = ILLUSOR_CONFIG.greenShotCooldownMs;
+    this.illusorGreenProjectileCount = ILLUSOR_CONFIG.greenProjectileCount;
+    this.illusorProjectileDamage = ILLUSOR_CONFIG.projectileDamage;
+    this.illusorProjectileLifeMs = ILLUSOR_CONFIG.projectileLifeMs;
+    this.illusorProjectileMaxDistance = ILLUSOR_CONFIG.projectileMaxDistance;
     this.radius = ILLUSOR_CONFIG.radius;
-    this.separationRadius = this.radius * 0.82;
+    this.separationRadius = this.radius;
     this.maxHp = ILLUSOR_CONFIG.hp;
     this.hp = this.maxHp;
     this.damage = ILLUSOR_CONFIG.damage;
@@ -165,6 +213,8 @@ class Enemy {
   update(player, delta, now = 0) {
     if (!this.active) return;
     if (this.isIllusor) {
+      const insideReturnZone = this.updateIllusorOffscreenBoost(delta, now);
+      this.updateIllusorScaling(delta, insideReturnZone);
       this.updateIllusorTransform(now);
       this.updateIllusorAttacks(now);
     }
@@ -217,8 +267,25 @@ class Enemy {
       this.knockbackY = 0;
     }
     this.body.body.setVelocity(velocityX, velocityY);
-    this.container.rotation += (delta / 1000) * (this.type.shape === "circle" ? 0.2 : this.type.shape === "hexagon" ? 1.25 : 0.9);
+    this.container.rotation += (delta / 1000) * this.currentRotationSpeed();
     this.drawHealthBar();
+  }
+
+  currentRotationSpeed() {
+    if (this.illusorTransform) {
+      return Phaser.Math.Linear(
+        this.rotationSpeedForShape(this.illusorTransform.fromType.shape),
+        this.rotationSpeedForShape(this.illusorTransform.toType.shape),
+        clamp(this.illusorTransform.progress, 0, 1)
+      );
+    }
+    return this.rotationSpeedForShape(this.type.shape);
+  }
+
+  rotationSpeedForShape(shape) {
+    if (shape === "circle") return 0.2;
+    if (shape === "hexagon") return 1.25;
+    return 0.9;
   }
 
   applyIllusorForm(key, immediate = false) {
@@ -226,7 +293,7 @@ class Enemy {
     const cfg = ILLUSOR_CONFIG.forms[key] || ILLUSOR_CONFIG.forms.blueSquare;
     this.illusorFormKey = key;
     this.damageTakenMultiplier = cfg.damageTakenMultiplier || 1;
-    this.speed = this.illusorBaseSpeed * (cfg.speedMultiplier || 1);
+    this.refreshIllusorStats(cfg);
     this.type = {
       ...baseType,
       radius: this.radius,
@@ -235,7 +302,7 @@ class Enemy {
       exp: this.exp,
       dashIntervalMs: cfg.dashIntervalMs,
       dashDurationMs: cfg.dashDurationMs,
-      dashMultiplier: cfg.dashMultiplier,
+      dashMultiplier: cfg.dashMultiplier ? cfg.dashMultiplier * (this.illusorDashMultiplier || 1) : cfg.dashMultiplier,
       dashInertiaMs: cfg.dashInertiaMs,
       dashInertiaPower: cfg.dashInertiaPower,
     };
@@ -247,13 +314,80 @@ class Enemy {
       this.dashInertiaUntil = 0;
     }
     if (key === "redPentagon") {
-      this.nextIllusorShotAt = this.scene.time.now + 1000;
+      this.nextIllusorShotAt = this.scene.time.now + this.illusorShotCooldownMs;
       this.illusorShotCycle = 0;
     } else {
       this.nextIllusorShotAt = 0;
       this.illusorShotCycle = 0;
     }
     if (immediate) this.drawIllusorExact(baseType);
+  }
+
+  refreshIllusorStats(cfg = null) {
+    const formCfg = cfg || ILLUSOR_CONFIG.forms[this.illusorFormKey] || ILLUSOR_CONFIG.forms.blueSquare;
+    this.damage = ILLUSOR_CONFIG.damage * (this.illusorDamageMultiplier || 1);
+    this.speed =
+      this.illusorBaseSpeed *
+      (formCfg.speedMultiplier || 1) *
+      (this.illusorSpeedMultiplier || 1) *
+      (this.illusorOffscreenBoost || 1);
+    if (this.type) {
+      this.type.damage = this.damage;
+      if (formCfg.dashMultiplier) this.type.dashMultiplier = formCfg.dashMultiplier * (this.illusorDashMultiplier || 1);
+    }
+  }
+
+  updateIllusorScaling(delta, insideReturnZone = true) {
+    const timerMultiplier = insideReturnZone ? 1 : ILLUSOR_CONFIG.offscreenScalingTimerMultiplier;
+    this.illusorScalingElapsedMs += delta * timerMultiplier;
+    const buffStacks = Math.floor(this.illusorScalingElapsedMs / ILLUSOR_CONFIG.illusorBuffIntervalMs);
+    const minuteStacks = Math.floor(this.illusorScalingElapsedMs / ILLUSOR_CONFIG.illusorMinuteBuffIntervalMs);
+    if (buffStacks === this.illusorBuffStacks && minuteStacks === this.illusorMinuteStacks) return;
+
+    const oldMaxHp = this.maxHp || ILLUSOR_CONFIG.hp;
+    this.illusorBuffStacks = buffStacks;
+    this.illusorMinuteStacks = minuteStacks;
+    this.illusorSpeedMultiplier =
+      Math.pow(ILLUSOR_CONFIG.illusorSpeedBuffMultiplier, buffStacks) *
+      Math.pow(ILLUSOR_CONFIG.illusorMinuteSpeedMultiplier, minuteStacks);
+    this.illusorDashMultiplier = Math.pow(ILLUSOR_CONFIG.illusorMinuteDashMultiplier, minuteStacks);
+    this.illusorDamageMultiplier = Math.pow(ILLUSOR_CONFIG.illusorMinuteDamageMultiplier, minuteStacks);
+    this.illusorShotCooldownMs =
+      ILLUSOR_CONFIG.greenShotCooldownMs *
+      Math.pow(ILLUSOR_CONFIG.illusorGreenCooldownMultiplier, buffStacks);
+    this.illusorGreenProjectileCount =
+      ILLUSOR_CONFIG.greenProjectileCount + minuteStacks * ILLUSOR_CONFIG.illusorMinuteProjectileBonus;
+    this.illusorProjectileDamage = ILLUSOR_CONFIG.projectileDamage * this.illusorDamageMultiplier;
+    const projectileRangeMultiplier = Math.pow(ILLUSOR_CONFIG.illusorMinuteProjectileRangeMultiplier, minuteStacks);
+    this.illusorProjectileLifeMs = ILLUSOR_CONFIG.projectileLifeMs * projectileRangeMultiplier;
+    this.illusorProjectileMaxDistance = ILLUSOR_CONFIG.projectileMaxDistance * projectileRangeMultiplier;
+    this.maxHp = ILLUSOR_CONFIG.hp * Math.pow(ILLUSOR_CONFIG.illusorMinuteHpMultiplier, minuteStacks);
+    if (this.maxHp !== oldMaxHp) {
+      const hpRatio = oldMaxHp > 0 ? this.maxHp / oldMaxHp : 1;
+      this.hp = Math.min(this.maxHp, this.hp * hpRatio);
+      this.drawHealthBar();
+    }
+    this.refreshIllusorStats();
+  }
+
+  updateIllusorOffscreenBoost(delta, now) {
+    const insideReturnZone = this.scene.isIllusorInsideReturnZone?.(this) ?? true;
+    if (insideReturnZone) {
+      this.illusorOffscreenSince = 0;
+    } else if (!this.illusorOffscreenSince) {
+      this.illusorOffscreenSince = now;
+    }
+
+    const shouldBoost =
+      !insideReturnZone &&
+      this.illusorOffscreenSince > 0 &&
+      now - this.illusorOffscreenSince >= ILLUSOR_CONFIG.offscreenSpeedGraceMs;
+    const target = shouldBoost ? ILLUSOR_CONFIG.offscreenSpeedMultiplier : 1;
+    const blend = 1 - Math.exp((-ILLUSOR_CONFIG.offscreenSpeedLerpRate * delta) / 1000);
+    this.illusorOffscreenBoost = Phaser.Math.Linear(this.illusorOffscreenBoost || 1, target, blend);
+    if (Math.abs(this.illusorOffscreenBoost - target) < 0.005) this.illusorOffscreenBoost = target;
+    this.refreshIllusorStats();
+    return insideReturnZone;
   }
 
   updateIllusorTransform(now) {
@@ -268,6 +402,8 @@ class Enemy {
     const toType = ENEMY_TYPES[nextKey] || ENEMY_TYPES.blueSquare;
     this.illusorTransform = { fromType, toType, progress: 0 };
     if (this.illusorTransformTween) this.illusorTransformTween.stop();
+    this.scene.emitIllusorTransformWave?.(this);
+    if (this.illusorFormKey === "blueSquare" && nextKey !== "blueSquare") this.scene.clearIllusorMinions?.(this, true);
     this.illusorTransformTween = this.scene.tweens.add({
       targets: this.illusorTransform,
       progress: 1,
@@ -287,9 +423,9 @@ class Enemy {
   updateIllusorAttacks(now) {
     if (this.illusorTransform || this.illusorFormKey !== "redPentagon" || this.nextIllusorShotAt <= 0) return;
     if (now < this.nextIllusorShotAt) return;
-    this.scene.fireIllusorRadial?.(this, 3, this.illusorShotCycle * 0.34);
+    this.scene.fireIllusorRadial?.(this, this.illusorGreenProjectileCount, this.illusorShotCycle * 0.34);
     this.illusorShotCycle += 1;
-    this.nextIllusorShotAt = now + 1000;
+    this.nextIllusorShotAt = now + this.illusorShotCooldownMs;
   }
 
   colorMix(from, to, t) {
@@ -324,6 +460,38 @@ class Enemy {
     return -Math.PI / 2;
   }
 
+  roundedTrianglePoints(radius) {
+    const points = [];
+    for (let i = 0; i < 3; i += 1) {
+      const angle = -Math.PI / 2 + (i / 3) * Math.PI * 2;
+      points.push(new Phaser.Geom.Point(Math.cos(angle) * radius, Math.sin(angle) * radius));
+    }
+
+    const corner = radius * 0.22;
+    const roundedPoints = [];
+    points.forEach((point, index) => {
+      const prev = points[(index + points.length - 1) % points.length];
+      const next = points[(index + 1) % points.length];
+      const toPrev = new Phaser.Math.Vector2(prev.x - point.x, prev.y - point.y).normalize().scale(corner);
+      const toNext = new Phaser.Math.Vector2(next.x - point.x, next.y - point.y).normalize().scale(corner);
+      const start = new Phaser.Geom.Point(point.x + toPrev.x, point.y + toPrev.y);
+      const end = new Phaser.Geom.Point(point.x + toNext.x, point.y + toNext.y);
+
+      if (index > 0) roundedPoints.push(start);
+      for (let step = 0; step <= 4; step += 1) {
+        const t = step / 4;
+        const inv = 1 - t;
+        roundedPoints.push(
+          new Phaser.Geom.Point(
+            inv * inv * start.x + 2 * inv * t * point.x + t * t * end.x,
+            inv * inv * start.y + 2 * inv * t * point.y + t * t * end.y
+          )
+        );
+      }
+    });
+    return roundedPoints;
+  }
+
   drawIllusorExact(type) {
     if (!this.shape) return;
     this.shape.clear();
@@ -338,6 +506,12 @@ class Enemy {
       const size = this.radius * 1.72;
       this.shape.fillRoundedRect(-size / 2, -size / 2, size, size, 5);
       this.shape.strokeRoundedRect(-size / 2, -size / 2, size, size, 5);
+      return;
+    }
+    if (type.shape === "triangle") {
+      const points = this.roundedTrianglePoints(this.radius);
+      this.shape.fillPoints(points, true);
+      this.shape.strokePoints(points, true);
       return;
     }
     const sides = this.shapeSides(type.shape);
@@ -492,8 +666,24 @@ class Enemy {
     this.knockbackX = 0;
     this.knockbackY = 0;
     this.isIllusor = false;
+    this.isIllusorMinion = false;
+    this.illusorOwner = null;
     this.illusorFormKey = "blueSquare";
     this.illusorBaseSpeed = 0;
+    this.illusorSpawnedAt = 0;
+    this.illusorScalingElapsedMs = 0;
+    this.illusorBuffStacks = 0;
+    this.illusorMinuteStacks = 0;
+    this.illusorSpeedMultiplier = 1;
+    this.illusorDashMultiplier = 1;
+    this.illusorDamageMultiplier = 1;
+    this.illusorOffscreenSince = 0;
+    this.illusorOffscreenBoost = 1;
+    this.illusorShotCooldownMs = ILLUSOR_CONFIG.greenShotCooldownMs;
+    this.illusorGreenProjectileCount = ILLUSOR_CONFIG.greenProjectileCount;
+    this.illusorProjectileDamage = ILLUSOR_CONFIG.projectileDamage;
+    this.illusorProjectileLifeMs = ILLUSOR_CONFIG.projectileLifeMs;
+    this.illusorProjectileMaxDistance = ILLUSOR_CONFIG.projectileMaxDistance;
     if (this.illusorTransformTween) this.illusorTransformTween.stop();
     this.illusorTransform = null;
     this.illusorTransformTween = null;
@@ -564,7 +754,8 @@ class WaveDirector {
   currentSpawnInterval() {
     const interval = CONFIG.firstSpawnIntervalMs - (this.wave - 1) * 82;
     const waveSpawnSpeedMultiplier = Math.pow(0.995, this.wave - 1);
-    return Math.max(CONFIG.minSpawnIntervalMs, interval * waveSpawnSpeedMultiplier);
+    const baseInterval = Math.max(CONFIG.minSpawnIntervalMs, interval * waveSpawnSpeedMultiplier);
+    return this.scene.hasActiveIllusorBoss?.() ? baseInterval * ILLUSOR_CONFIG.illusorSpawnIntervalMultiplier : baseInterval;
   }
 
   spawnCount() {
